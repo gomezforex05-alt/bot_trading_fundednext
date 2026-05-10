@@ -16,6 +16,12 @@ input int    INTERVALO = 1;   // Intervalo en horas para enviar balance a Flask
 //--- Variable global interna para el balance maximo historico
 double g_balance_maximo = 0.0;
 
+//--- Anti-duplicados: guardan el ultimo deal_ticket ya notificado
+//    OnTradeTransaction se dispara varias veces por el mismo deal;
+//    ignoramos el ticket si ya fue enviado.
+ulong g_ultimo_ticket_abierto = 0;
+ulong g_ultimo_ticket_cerrado = 0;
+
 //+------------------------------------------------------------------+
 //| Inicializacion: configura timer y carga balance maximo           |
 //+------------------------------------------------------------------+
@@ -98,6 +104,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    // ===== TRADE ABIERTO (entrada nueva) =====
    if(entry_type == DEAL_ENTRY_IN)
    {
+      if(deal_ticket == g_ultimo_ticket_abierto)
+      {
+         Print("[TelegramNotifier] Apertura duplicada ignorada | ticket: ", deal_ticket);
+         return;
+      }
+      g_ultimo_ticket_abierto = deal_ticket;
+
       string symbol  = HistoryDealGetString(deal_ticket,  DEAL_SYMBOL);
       long   d_type  = HistoryDealGetInteger(deal_ticket, DEAL_TYPE);
       double lotes   = HistoryDealGetDouble(deal_ticket,  DEAL_VOLUME);
@@ -132,6 +145,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    // ===== TRADE CERRADO (salida de posicion) =====
    if(entry_type == DEAL_ENTRY_OUT || entry_type == DEAL_ENTRY_INOUT)
    {
+      if(deal_ticket == g_ultimo_ticket_cerrado)
+      {
+         Print("[TelegramNotifier] Cierre duplicado ignorado | ticket: ", deal_ticket);
+         return;
+      }
+      g_ultimo_ticket_cerrado = deal_ticket;
+
       string   symbol        = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
       double   resultado     = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT)
                              + HistoryDealGetDouble(deal_ticket, DEAL_SWAP)
