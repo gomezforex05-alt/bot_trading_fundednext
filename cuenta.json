@@ -1,0 +1,10 @@
+{
+  "balance": 2000.0,
+  "equity": 2000.0,
+  "balance_maximo": 2000.0,
+  "profit_hoy": 0.0,
+  "profit_mes": 0.0,
+  "trades_semana": [],
+  "trades_mes": [],
+  "ultima_actualizacion": ""
+}
