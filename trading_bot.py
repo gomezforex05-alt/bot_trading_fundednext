@@ -27,7 +27,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "8738002791:AAGDU8Jjxe-z8XsuPXNVF-EQhF16_XOfs
 CHAT_ID   = os.getenv("CHAT_ID",   "8772999810")
 TIMEZONE  = "Europe/Lisbon"
 
-MLL_TRAILING_PCT = 0.06   # 6% trailing sobre balance maximo
+MLL_FACTOR = 0.94   # MLL = balance_maximo * 0.94  (trailing 6%)
 RETIRO_PCT       = 0.40   # 40% retiro mensual
 RIESGO_POR_TRADE = 15.0
 
@@ -108,7 +108,7 @@ MESES_ES = [
 
 
 def calcular_colchon(cuenta: dict) -> float:
-    mll = cuenta["balance_maximo"] * (1 - MLL_TRAILING_PCT)
+    mll = cuenta["balance_maximo"] * MLL_FACTOR
     return round(cuenta["balance"] - mll, 2)
 
 
@@ -182,9 +182,11 @@ def check_meses_negativos() -> None:
 
 @flask_app.route("/balance", methods=["POST"])
 def endpoint_balance():
-    """Recibe datos de balance cada hora desde MT5. No envia mensaje; solo alerta si hay problemas."""
+    """Recibe datos de balance cada hora desde MT5. No envia mensaje; solo alerta si el balance cambio."""
     data   = request.form
     cuenta = load_cuenta()
+
+    balance_anterior = cuenta["balance"]
 
     cuenta["balance"]    = float(data.get("balance",    cuenta["balance"]))
     cuenta["equity"]     = float(data.get("equity",     cuenta["equity"]))
@@ -197,7 +199,11 @@ def endpoint_balance():
 
     cuenta["ultima_actualizacion"] = datetime.now(tz).isoformat()
     save_cuenta(cuenta)
-    check_alertas(cuenta)
+
+    # Solo alertar si el balance cambio — nunca en envios periodicos sin cambios
+    if cuenta["balance"] != balance_anterior:
+        check_alertas(cuenta)
+
     return jsonify({"ok": True})
 
 
@@ -335,7 +341,7 @@ def generar_informe_mensual() -> None:
 
     balance    = cuenta["balance"]
     bal_max    = cuenta["balance_maximo"]
-    mll        = round(bal_max * (1 - MLL_TRAILING_PCT), 2)
+    mll        = round(bal_max * MLL_FACTOR, 2)
     colchon    = round(balance - mll, 2)
     profit_mes = cuenta.get("profit_mes", 0)
 
@@ -443,7 +449,7 @@ async def cmd_estado(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     cuenta  = load_cuenta()
     balance = cuenta["balance"]
     bal_max = cuenta["balance_maximo"]
-    mll     = round(bal_max * (1 - MLL_TRAILING_PCT), 2)
+    mll     = round(bal_max * MLL_FACTOR, 2)
     colchon = round(balance - mll, 2)
     await update.message.reply_text(
         f"ESTADO ACTUAL\n"
