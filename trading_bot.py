@@ -270,7 +270,7 @@ def endpoint_trade_cerrado():
     trade_info = {
         "par":       par,
         "resultado": resultado,
-        "fecha":     datetime.now(tz).isoformat(),
+        "fecha":     datetime.now(pytz.timezone("Europe/Lisbon")).isoformat(),
     }
     cuenta.setdefault("trades_semana", []).append(trade_info)
     cuenta.setdefault("trades_mes",    []).append(trade_info)
@@ -408,20 +408,10 @@ def generar_informe_semanal() -> None:
     inicio_str = lunes.strftime("%d/%m")
     fin_str    = ahora.strftime("%d/%m/%Y")
 
-    balance  = cuenta["balance"]
-    colchon  = calcular_colchon(cuenta)
-    semaforo = get_semaforo(colchon)
-
-    trades     = cuenta.get("trades_semana", [])
-    total      = len(trades)
-    ganadores  = [t for t in trades if t["resultado"] > 0]
-    perdedores = [t for t in trades if t["resultado"] <= 0]
-    profit_sem = sum(t["resultado"] for t in trades)
+    balance    = cuenta["balance"]
+    colchon    = calcular_colchon(cuenta)
+    semaforo   = get_semaforo(colchon)
     profit_mes = cuenta.get("profit_mes", 0)
-    pct        = (len(ganadores) / total * 100) if total > 0 else 0
-    max_g      = max((t["resultado"] for t in ganadores),  default=0)
-    max_p      = abs(min((t["resultado"] for t in perdedores), default=0))
-    ps_str     = f"+${profit_sem:.2f}" if profit_sem >= 0 else f"-${abs(profit_sem):.2f}"
     pm_str     = f"+${profit_mes:.2f}" if profit_mes >= 0 else f"-${abs(profit_mes):.2f}"
     est_txt    = (
         "Colchon saludable." if colchon >= 80
@@ -429,16 +419,45 @@ def generar_informe_semanal() -> None:
         else "Colchon bajo. Precaucion."
     )
 
-    send_telegram(
-        f"--- RESUMEN SEMANA {semana_num} {mes_nombre.upper()} ---\n"
-        f"Del {inicio_str} al {fin_str}\n"
-        f"Balance: ${balance:.2f} | Colchon: ${colchon:.2f}\n"
-        f"Semana: {ps_str}\n"
-        f"Acumulado {mes_nombre}: {pm_str}\n"
-        f"Trades: {total} | Ganadores: {len(ganadores)} ({pct:.0f}%) | Perdedores: {len(perdedores)}\n"
-        f"Mayor ganancia: +${max_g:.2f} | Mayor perdida: -${max_p:.2f}\n"
-        f"Estado colchon: [{semaforo}] {est_txt}"
-    )
+    # Bug 1: filtrar SOLO trades de la semana actual (lunes 00:00 - viernes 23:59 Lisboa)
+    inicio_semana = lunes.replace(hour=0, minute=0, second=0, microsecond=0)
+    fin_semana    = inicio_semana + timedelta(days=4, hours=23, minutes=59, seconds=59)
+    trades_semana = [
+        t for t in cuenta.get("trades_mes", [])
+        if inicio_semana <= datetime.fromisoformat(t["fecha"]) <= fin_semana
+    ]
+
+    # Bug 2 y 3: formato diferente segun si hay trades o no
+    if len(trades_semana) == 0:
+        send_telegram(
+            f"--- RESUMEN SEMANA {semana_num} {mes_nombre.upper()} ---\n"
+            f"Del {inicio_str} al {fin_str}\n"
+            f"Balance: ${balance:.2f} | Colchon: ${colchon:.2f} [{semaforo}]\n"
+            f"Semana: Sin operaciones\n"
+            f"Acumulado {mes_nombre}: {pm_str}\n"
+            f"Trades esta semana: Ninguno\n"
+            f"Estado colchon: [{semaforo}] {est_txt}"
+        )
+    else:
+        total      = len(trades_semana)
+        ganadores  = [t for t in trades_semana if t["resultado"] > 0]
+        perdedores = [t for t in trades_semana if t["resultado"] <= 0]
+        profit_sem = sum(t["resultado"] for t in trades_semana)
+        pct        = len(ganadores) / total * 100
+        max_g      = max(t["resultado"] for t in ganadores)  if ganadores  else 0
+        max_p      = abs(min(t["resultado"] for t in perdedores)) if perdedores else 0
+        ps_str     = f"+${profit_sem:.2f}" if profit_sem >= 0 else f"-${abs(profit_sem):.2f}"
+
+        send_telegram(
+            f"--- RESUMEN SEMANA {semana_num} {mes_nombre.upper()} ---\n"
+            f"Del {inicio_str} al {fin_str}\n"
+            f"Balance: ${balance:.2f} | Colchon: ${colchon:.2f} [{semaforo}]\n"
+            f"Semana: {ps_str}\n"
+            f"Acumulado {mes_nombre}: {pm_str}\n"
+            f"Trades: {total} | Ganadores: {len(ganadores)} ({pct:.0f}%) | Perdedores: {len(perdedores)}\n"
+            f"Mayor ganancia: +${max_g:.2f} | Mayor perdida: -${max_p:.2f}\n"
+            f"Estado colchon: [{semaforo}] {est_txt}"
+        )
 
     cuenta["trades_semana"] = []
     save_cuenta(cuenta)
